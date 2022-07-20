@@ -16,4 +16,5 @@ type Person struct {
 	Email     *string    `ydb_reform:"email"`
 	CreatedAt time.Time  `ydb_reform:"created_at"`
 	UpdatedAt *time.Time `ydb_reform:"updated_at"`
-}```
+}
+```
