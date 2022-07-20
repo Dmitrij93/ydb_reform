@@ -3,7 +3,7 @@ In developing...
 
 create a file (for example, person.go) and fill it with a sample
 
-`//ydb_reform
+```//ydb_reform
 package main
 
 import (
@@ -16,4 +16,4 @@ type Person struct {
 	Email     *string    `ydb_reform:"email"`
 	CreatedAt time.Time  `ydb_reform:"created_at"`
 	UpdatedAt *time.Time `ydb_reform:"updated_at"`
-}`
+}```
