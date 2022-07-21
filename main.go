@@ -10,15 +10,15 @@ import (
 
 type fieldStruct struct{ field, type_ string }
 type table map[fieldStruct][]string
-type template struct {
+type parsedTables struct {
 	imp []string
 	st  map[string]table
 }
 
-var Template = template{[]string{}, map[string]table{}}
+var parsedTables_ parsedTables
 var imp []string
 var currentlyNameTable string = ""
-var flag = ""
+var flag string
 
 func parse(text string) {
 	if (len(text) < 4 || text[:4] != "type") && flag == "" {
@@ -26,8 +26,8 @@ func parse(text string) {
 	} else if len(text) > 4 && text[:4] == "type" {
 		flag = "parsing struct"
 		currentlyNameTable = strings.Fields(text)[1]
-		Template.imp = imp
-		Template.st[currentlyNameTable] = table{}
+		parsedTables_.imp = imp
+		parsedTables_.st[currentlyNameTable] = table{}
 	} else if text == "}" {
 		flag = "parse is complete"
 	} else if flag == "parsing struct" {
@@ -35,7 +35,7 @@ func parse(text string) {
 		fieldstruct := fieldStruct{tableField[0], tableField[1]}
 		ydbFieldString := strings.Split(tableField[2], `"`)[1]
 		ydbField := strings.Split(ydbFieldString, ",")
-		Template.st[currentlyNameTable][fieldstruct] = ydbField
+		parsedTables_.st[currentlyNameTable][fieldstruct] = ydbField
 	}
 }
 
@@ -52,28 +52,34 @@ func main() {
 
 	for _, file := range files {
 		if !file.IsDir() {
-			file, err := os.Open(file.Name())
+			fileName := file.Name()
+			file, err := os.Open(fileName)
 			if err != nil {
 				log.Fatalf("Error when opening file: %s", err)
 			}
-
 			fileScanner := bufio.NewScanner(file)
 			count := 0
+			flag = ""
 			imp = []string{}
+			parsedTables_ = parsedTables{[]string{}, map[string]table{}}
 			for fileScanner.Scan() {
 				text := fileScanner.Text()
 				if count == 0 && text != "//ydb_reform" {
+					flag = "not target file"
 					break
 				} else if count != 0 {
 					parse(text)
 				}
 				count++
 			}
-			//fmt.Println(Template)
 			if err := fileScanner.Err(); err != nil {
 				log.Fatalf("Error while reading file: %s", err)
 			}
 			file.Close()
+			if flag == "not target file" {
+				continue
+			}
+			createTargetFile(fileName)
 		}
 
 	}
