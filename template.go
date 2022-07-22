@@ -1,9 +1,9 @@
 package main
 
 import (
-	"io"
 	"log"
 	"os"
+	"reflect"
 	"strings"
 	"text/template"
 )
@@ -15,12 +15,7 @@ func createTargetFile(fileName string) {
 	if err != nil {
 		log.Fatalf("Error when opening %s file: %s", targetFileName, err)
 	}
-	text := strings.Join(parsedTables_.Imp, "\n")
-	_, err = io.WriteString(file, text)
-	if err != nil {
-		log.Fatalf("Error when writing imports in target file: %s", err)
-	}
-	appendFuncs(*file)
+	writeData(*file)
 	file.Close()
 
 }
@@ -33,19 +28,42 @@ func createFile(fileName string) {
 	defer file.Close()
 }
 
-func appendFuncs(file os.File) {
+func writeData(file os.File) {
 
 	text := []string{
+		`
+{{ .Package }}
+`,
+		`
+import(
+	"context"
+	"path"
+	{{- range $i, $x := .Imp }}
+	{{ $x }}
+	{{- end }}
+
+	"github.com/ydb-platform/ydb-go-sdk/v3"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table/options"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table/result"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table/result/named"
+	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
+)
+`,
+		`
+{{- range $i, $x := .NotParceSt }}"{{ $x }}"
+{{ end }}
+`,
 		`
 func (u *{{ .St.NameTable }}) scanValues() []named.Value {
 	return []named.Value{
 	{{- range $i, $x := .St.Table_ }}
 		named.
 		{{- if eq $i 0 }}Reqired
-		{{- else }}{{if index $x.Type 0}}OptionalWithDefault
+		{{- else }}{{if eq $x.NullType false}}OptionalWithDefault
 		{{- else }}Optional
 		{{- end }}{{ end -}}
-		("{{ index $x.YDBField 0 }}", &u.{{ $x.Field }}),
+		("{{ $x.YDBField }}", &u.{{ $x.Field }}),
 		{{- end }}
 	}
 }
@@ -55,16 +73,9 @@ func (u *{{ .St.NameTable }}) setValues() []table.ParameterOption {
 	return []table.ParameterOption{
 		{{- range $i, $x := .St.Table_ }}
 		table.ValueParam("${{ $x.Field }}", types.
-		{{- if index $x.Type 0 }}
-		{{- else }}Nullable
-		{{- end }}{{ $x.YDBType }}Value(u.{{ $x.Field }})),
+		{{- if $x.NullType }}Nullable{{- end -}}
+		{{ $x.YDBType }}Value(u.{{ $x.Field }})),
 		{{- end }}
-
-		table.ValueParam("$UserID", types.Uint64Value(u.UserID)),
-		table.ValueParam("$Username", types.UTF8Value(u.Username)),
-		table.ValueParam("$FirstName", types.UTF8Value(u.FirstName)),
-		table.ValueParam("$LastName", types.UTF8Value(u.LastName)),
-		table.ValueParam("$LanguageCode", types.UTF8Value(u.LanguageCode)),
 	}
 }
 `,
@@ -73,9 +84,52 @@ type {{ .St.NameTable }}Repo struct {
 	DB ydb.Connection
 }
 `,
+		`
+func (ur {{ .St.NameTable }}Repo) declarePrimary() string {
+	return ` + "`" + `
+		{{- range $i, $x := .St.Table_  }}
+		{{- if $x.YDBPrimary }}
+		DECLARE ${{ $x.Field }} AS {{ $x.YDBType }}
+		{{- if $x.NullType }}?{{ end }};
+		{{- end }}
+		{{- end }}
+	` + "`" + `
+}
+`,
+		`
+func (ur {{ .St.NameTable }}Repo) declare{{ .St.NameTable }}() string {
+	return ` + "`" + `
+		{{- range $i, $x := .St.Table_  }}
+		DECLARE ${{ $x.Field }} AS {{ $x.YDBType }}
+		{{- if $x.NullType }}?{{ end }};
+		{{- end }}
+	` + "`" + `
+}
+`,
+		`
+func (ur ProfileRepo) fields() string {
+	return ` + "`" + ` {{ $table := .St.Table_ }}
+	{{- range $i, $x := $table  }}
+	{{- if last $i $table }}{{ $x.YDBField }}{{- else }}{{ $x.YDBField }}, {{ end }}
+	{{- end }} ` + "`" + `
+}
+`,
+		`
+func (ur ProfileRepo) values() string {
+	return ` + "`" + ` ({{ $table := .St.Table_ }}
+	{{- range $i, $x := $table  }}
+	{{- if last $i $table }}${{ $x.Field }}{{- else }}${{ $x.Field }}, {{ end }}
+	{{- end }}) ` + "`" + `
+}
+`,
 	}
 	for i, f := range text {
-		t := template.New("")
+		t := template.New("").Funcs(
+			template.FuncMap{
+				"last": func(x int, a interface{}) bool {
+					return x == reflect.ValueOf(a).Len()-1
+				},
+			})
 		t.Parse(f)
 		if err := t.Execute(&file, parsedTables_); err != nil {
 			log.Fatalf("Error when writing struct in target file (record %d): %s", i, err)
