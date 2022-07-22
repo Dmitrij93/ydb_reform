@@ -11,10 +11,10 @@ import (
 )
 
 type Person struct {
-	ID        int32      `ydb_reform:"id,pk"`
-	Name      string     `ydb_reform:"name"`
-	Email     *string    `ydb_reform:"email"`
-	CreatedAt time.Time  `ydb_reform:"created_at"`
-	UpdatedAt *time.Time `ydb_reform:"updated_at"`
+	ID        int32      `ydb:"id,primary"`
+	Name      string     `ydb:"name"`
+	Email     *string    `ydb:"email"`
+	CreatedAt time.Time  `ydb:"created_at"`
+	UpdatedAt *time.Time `ydb:"updated_at"`
 }
 ```
