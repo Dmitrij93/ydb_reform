@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"io/ioutil"
 	"log"
 	"os"
@@ -30,7 +31,7 @@ type parsedTable struct {
 var parsedTables_ parsedTable
 var imp []string
 var currentlyNameTable string = ""
-var flag string
+var flag_ string
 var ydbType = map[string]string{
 	"string":     "UTF8",
 	"bool":       "Bool",
@@ -59,24 +60,24 @@ func parse(text, fileName string) {
 	} else if len(text) > 6 && text[:6] == "import" {
 		if text[7:8] != "(" {
 			imp = append(imp, text[7:])
-			flag = "import is complete"
+			flag_ = "import is complete"
 		} else {
-			flag = "gathering imports"
+			flag_ = "gathering imports"
 		}
 	} else if text == ")" {
-		flag = "import is complete"
-	} else if flag == "gathering imports" {
+		flag_ = "import is complete"
+	} else if flag_ == "gathering imports" {
 		imp = append(imp, strings.TrimSpace(text))
 	} else if len(text) > 4 && text[:4] == "type" {
-		flag = "parsing struct"
+		flag_ = "parsing struct"
 		currentlyNameTable = strings.Fields(text)[1]
 		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
-		parsedTables_.Imp = imp
+		// parsedTables_.Imp = imp
 		parsedTables_.St = namedTable{currentlyNameTable, []table{}}
 	} else if text == "}" {
 		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
-		flag = "parse is complete"
-	} else if flag == "parsing struct" {
+		flag_ = "parse is complete"
+	} else if flag_ == "parsing struct" {
 		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		tableField := strings.Fields(text)
 		typeField := strings.Split(tableField[1], `*`)
@@ -105,10 +106,8 @@ func parse(text, fileName string) {
 }
 
 func main() {
-	path, err := os.Getwd()
-	if err != nil {
-		log.Fatal(err)
-	}
+	var path string
+	flag.StringVar(&path, "path", ".", "Path to files for ydb_reform")
 
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
@@ -124,13 +123,13 @@ func main() {
 			}
 			fileScanner := bufio.NewScanner(file)
 			count := 0
-			flag = ""
+			flag_ = ""
 			imp = []string{}
 			parsedTables_ = parsedTable{"", []string{}, []string{}, namedTable{}}
 			for fileScanner.Scan() {
 				text := fileScanner.Text()
 				if count == 0 && text != "//ydb_reform" {
-					flag = "not target file"
+					flag_ = "not target file"
 					break
 				} else if count != 0 {
 					parse(text, file.Name())
@@ -141,7 +140,7 @@ func main() {
 				log.Fatalf("Error while reading file: %s", err)
 			}
 			file.Close()
-			if flag == "not target file" {
+			if flag_ == "not target file" {
 				continue
 			}
 			createTargetFile(fileName)

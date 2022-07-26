@@ -9,7 +9,7 @@ import (
 )
 
 func createTargetFile(fileName string) {
-	targetFileName := strings.Split(fileName, ".")[0] + "_ydb_reform.go"
+	targetFileName := strings.Split(fileName, ".")[0] + "_ydbgen.go"
 	createFile(targetFileName)
 	file, err := os.OpenFile(targetFileName, os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
@@ -38,9 +38,6 @@ func writeData(file os.File) {
 import(
 	"context"
 	"path"
-	{{- range $i, $x := .Imp }}
-	{{ $x }}
-	{{- end }}
 
 	"github.com/ydb-platform/ydb-go-sdk/v3"
 	"github.com/ydb-platform/ydb-go-sdk/v3/table"
@@ -57,10 +54,6 @@ var writeTx = table.TxControl(
 	),
 	table.CommitTx(),
 )
-`,
-		`
-{{ range $i, $x := .NotParceSt }}{{ $x }}
-{{ end -}}
 `,
 		`
 func (u *{{ .St.NameTable }}) scanValues() []named.Value {
@@ -167,9 +160,7 @@ func (ur {{ $table.NameTable }}Repo) firstParam(
 	{{- low_capitalize $pr.Field }} {{ $pr.Type -}}
 ) *table.QueryParameters {
 	return table.NewQueryParameters(
-		table.ValueParam("${{ $pr.Field }}", types.
-		{{- $pr.YDBType }}{{ if eq $pr.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
-		({{ low_capitalize $pr.Field }})),
+		table.ValueParam("${{ $pr.Field }}", types.Uint64Value({{ low_capitalize $pr.Field }})),
 	)
 }
 {{ break }}
@@ -186,9 +177,7 @@ func (ur {{ .St.NameTable }}Repo) primaryParams(
 	return table.NewQueryParameters(
 		{{- range $i, $x := .St.Table_  }}
 		{{- if $x.YDBPrimary}}
-		table.ValueParam("${{ $x.Field }}", types.
-		{{- $x.YDBType }}{{ if eq $x.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
-		({{ low_capitalize $x.Field }})),
+		table.ValueParam("${{ $x.Field }}", types.Uint64Value({{ low_capitalize $x.Field }})),
 		{{- end }}
 		{{- end }}
 	)
