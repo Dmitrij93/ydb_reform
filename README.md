@@ -3,7 +3,8 @@ In developing...
 
 1) create a file (for example, person.go) and fill it with a sample
 
-```//ydb_reform
+```
+//ydb_reform
 package main
 
 import (
