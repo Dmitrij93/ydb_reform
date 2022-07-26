@@ -48,11 +48,13 @@ var ydbType = map[string]string{
 	"float64":    "Float",
 	"complex64":  "",
 	"complex128": "",
-	"time.Time":  "DatetimeValueFromTime",
+	"time.Time":  "Datetime",
 }
 
-func parse(text string) {
-	if len(text) > 7 && text[:7] == "package" {
+func parse(text, fileName string) {
+	if text == "" {
+		return
+	} else if len(text) > 7 && text[:7] == "package" {
 		parsedTables_.Package = text
 	} else if len(text) > 6 && text[:6] == "import" {
 		if text[7:8] != "(" {
@@ -68,11 +70,14 @@ func parse(text string) {
 	} else if len(text) > 4 && text[:4] == "type" {
 		flag = "parsing struct"
 		currentlyNameTable = strings.Fields(text)[1]
+		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		parsedTables_.Imp = imp
 		parsedTables_.St = namedTable{currentlyNameTable, []table{}}
 	} else if text == "}" {
+		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		flag = "parse is complete"
 	} else if flag == "parsing struct" {
+		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		tableField := strings.Fields(text)
 		typeField := strings.Split(tableField[1], `*`)
 		nullType := false
@@ -91,6 +96,9 @@ func parse(text string) {
 			ydbField[0],
 			ydbType[typeField[len(typeField)-1]],
 			ydbPrimary,
+		}
+		if len(parsedTables_.St.Table_) == 0 && !fieldstruct.YDBPrimary {
+			log.Fatalf("First field structs isn't primary in file: %s ", fileName)
 		}
 		parsedTables_.St.Table_ = append(parsedTables_.St.Table_, fieldstruct)
 	}
@@ -125,7 +133,7 @@ func main() {
 					flag = "not target file"
 					break
 				} else if count != 0 {
-					parse(text)
+					parse(text, file.Name())
 				}
 				count++
 			}

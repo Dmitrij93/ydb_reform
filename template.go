@@ -32,7 +32,7 @@ func writeData(file os.File) {
 
 	text := []string{
 		`
-{{ .Package }}
+{{- .Package }}
 `,
 		`
 import(
@@ -51,15 +51,23 @@ import(
 )
 `,
 		`
-{{- range $i, $x := .NotParceSt }}"{{ $x }}"
-{{ end }}
+var writeTx = table.TxControl(
+	table.BeginTx(
+		table.WithSerializableReadWrite(),
+	),
+	table.CommitTx(),
+)
+`,
+		`
+{{ range $i, $x := .NotParceSt }}{{ $x }}
+{{ end -}}
 `,
 		`
 func (u *{{ .St.NameTable }}) scanValues() []named.Value {
 	return []named.Value{
 	{{- range $i, $x := .St.Table_ }}
 		named.
-		{{- if eq $i 0 }}Reqired
+		{{- if $x.YDBPrimary }}Required
 		{{- else }}{{if eq $x.NullType false}}OptionalWithDefault
 		{{- else }}Optional
 		{{- end }}{{ end -}}
@@ -73,8 +81,8 @@ func (u *{{ .St.NameTable }}) setValues() []table.ParameterOption {
 	return []table.ParameterOption{
 		{{- range $i, $x := .St.Table_ }}
 		table.ValueParam("${{ $x.Field }}", types.
-		{{- if $x.NullType }}Nullable{{- end -}}
-		{{ $x.YDBType }}Value(u.{{ $x.Field }})),
+		{{- if $x.NullType }}Nullable{{- end }}
+		{{- $x.YDBType }}{{ if eq $x.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end }}(u.{{ $x.Field }})),
 		{{- end }}
 	}
 }
@@ -93,7 +101,7 @@ func (ur {{ .St.NameTable }}Repo) declarePrimary() string {
 		{{- if $x.NullType }}?{{ end }};
 		{{- end }}
 		{{- end }}
-	` + "`" + `
+` + "`" + `
 }
 `,
 		`
@@ -103,11 +111,11 @@ func (ur {{ .St.NameTable }}Repo) declare{{ .St.NameTable }}() string {
 		DECLARE ${{ $x.Field }} AS {{ $x.YDBType }}
 		{{- if $x.NullType }}?{{ end }};
 		{{- end }}
-	` + "`" + `
+` + "`" + `
 }
 `,
 		`
-func (ur ProfileRepo) fields() string {
+func (ur {{ .St.NameTable }}Repo) fields() string {
 	return ` + "`" + ` {{ $table := .St.Table_ }}
 	{{- range $i, $x := $table  }}
 	{{- if last $i $table }}{{ $x.YDBField }}{{- else }}{{ $x.YDBField }}, {{ end }}
@@ -115,11 +123,278 @@ func (ur ProfileRepo) fields() string {
 }
 `,
 		`
-func (ur ProfileRepo) values() string {
+func (ur {{ .St.NameTable }}Repo) values() string {
 	return ` + "`" + ` ({{ $table := .St.Table_ }}
 	{{- range $i, $x := $table  }}
 	{{- if last $i $table }}${{ $x.Field }}{{- else }}${{ $x.Field }}, {{ end }}
 	{{- end }}) ` + "`" + `
+}
+`,
+		`
+func (ur {{ .St.NameTable }}Repo) table(name string) string {
+	res := ` + "` {{ lower .St.NameTable }}s `" + `
+	if name != "" {
+		res += name + ` + "` `" + `
+	}
+	return res
+}
+`,
+		`
+func (ur {{ .St.NameTable }}Repo) findPrimary() string {
+	return ` + "` WHERE" + `{{ range $i, $x := .St.Table_  }}
+	{{- if $x.YDBPrimary }}
+	{{- if eq $i 0}} {{ $x.YDBField }} = ${{ $x.Field }}
+	{{- else }} AND {{ $x.YDBField }} = ${{ $x.Field }}
+	{{- end }}
+	{{- end }}
+	{{- end }} ` + "`" + `
+}
+`,
+		`{{ $table := .St }}
+{{- $pr := (index $table.Table_ 0) }}
+{{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
+func (ur {{ $table.NameTable }}Repo) findByFirst() string {
+	return ` + "` WHERE " + `{{ $pr.YDBField}} = ${{ $pr.Field }} ` + "`" + `
+}
+{{ break }}
+{{- end }}
+{{- end -}}
+`,
+		`{{ $table := .St }}
+{{- $pr := (index $table.Table_ 0) }}
+{{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
+func (ur {{ $table.NameTable }}Repo) firstParam(
+	{{- low_capitalize $pr.Field }} {{ $pr.Type -}}
+) *table.QueryParameters {
+	return table.NewQueryParameters(
+		table.ValueParam("${{ $pr.Field }}", types.
+		{{- $pr.YDBType }}{{ if eq $pr.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
+		({{ low_capitalize $pr.Field }})),
+	)
+}
+{{ break }}
+{{- end }}
+{{- end -}}
+`,
+		`
+func (ur {{ .St.NameTable }}Repo) primaryParams(
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }}{{ low_capitalize $x.Field }} {{ $x.Type }}{{ else }}
+	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }} {{ $x.Type }}{{ end }}{{ end }}
+	{{- end -}}
+) *table.QueryParameters {
+	return table.NewQueryParameters(
+		{{- range $i, $x := .St.Table_  }}
+		{{- if $x.YDBPrimary}}
+		table.ValueParam("${{ $x.Field }}", types.
+		{{- $x.YDBType }}{{ if eq $x.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
+		({{ low_capitalize $x.Field }})),
+		{{- end }}
+		{{- end }}
+	)
+}
+`,
+		`
+func (ur *{{ .St.NameTable }}Repo) Get(ctx context.Context,
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} {{ low_capitalize $x.Field }} {{ $x.Type }}{{ else }}
+	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }} {{ $x.Type }}{{ end }}{{ end }}
+	{{- end -}}
+) (u *{{ .St.NameTable }}, err error) {
+	// defer wrap.Errf("get {{ lower .St.NameTable }} %` + `d,%` + `s", &err,
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} {{ low_capitalize $x.Field }}{{ else }}
+	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
+	{{- end -}}
+)
+	u = &{{ .St.NameTable }}{}
+	query := ur.declarePrimary() + ` + "`SELECT `" + ` + ur.fields() +
+		" FROM " + ur.table("") +
+		ur.findPrimary()
+	var res result.Result
+	err = ur.DB.Table().Do(ctx, func(ctx context.Context, s table.Session) (err error) {
+		_, res, err = s.Execute(ctx, table.DefaultTxControl(), query,
+			ur.primaryParams(
+			{{- range $i, $x := .St.Table_  }}
+			{{- if eq $i 0 }}{{ low_capitalize $x.Field }}{{ else }}
+			{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
+			{{- end -}}
+),
+			options.WithCollectStatsModeBasic(),
+		)
+		return err
+	})
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = res.Close()
+	}()
+	for res.NextResultSet(ctx) {
+		for res.NextRow() {
+			err = res.ScanNamed(u.scanValues()...)
+			return
+		}
+	}
+	// err = wrap.NotFoundError{}
+	return
+}
+`,
+		`{{ $table := .St }}
+{{- $pr := (index $table.Table_ 0) }}
+{{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
+func (ur *{{ $table.NameTable }}Repo) GetBy{{$pr.Field}}(ctx context.Context, {{ low_capitalize $pr.Field }} {{ $pr.Type -}}
+) (ss []*{{ $table.NameTable }}, err error) {
+	// defer wrap.Errf("get {{ lower $table.NameTable }}s by {{ low_capitalize $pr.Field }} %d", &err, {{ low_capitalize $pr.Field }})
+	query := ur.declarePrimary() + ` + "`SELECT `" + ` + ur.fields() +
+		" FROM " + ur.table("") +
+		ur.findByFirst()
+	var res result.Result
+	err = ur.DB.Table().Do(ctx, func(ctx context.Context, s table.Session) (err error) {
+		_, res, err = s.Execute(ctx, table.DefaultTxControl(), query,
+			ur.firstParam({{- low_capitalize $pr.Field }}),
+			options.WithCollectStatsModeBasic(),
+		)
+		return err
+	})
+	if err != nil {
+		return
+	}
+	defer func() {
+		_ = res.Close()
+	}()
+	for res.NextResultSet(ctx) {
+		for res.NextRow() {
+			s := &{{ $table.NameTable }}{}
+			err = res.ScanNamed(s.scanValues()...)
+			if err != nil {
+				return
+			}
+			ss = append(ss, s)
+		}
+	}
+	return
+}
+{{ break }}
+{{- end }}
+{{- end -}}
+`,
+		`
+func (ur *{{ .St.NameTable }}Repo) Insert(ctx context.Context, u *{{ .St.NameTable }}) (err error) {
+	// defer wrap.Errf("insert {{ lower .St.NameTable }} %d,%s", &err,
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} u.{{ $x.Field }}{{ else }}
+	{{- if $x.YDBPrimary }}, u.{{ $x.Field }}{{ end }}{{ end }}
+	{{- end -}}
+)
+	// u.BeforeInsert()
+	query := ur.declare{{ .St.NameTable }}() + ` + "`INSERT INTO `" + ` + ur.table("") + ` + "` (` + ur.fields() + `) VALUES `" + ` + ur.values()
+	return ur.DB.Table().Do(
+		ctx,
+		func(ctx context.Context, s table.Session) (err error) {
+			_, _, err = s.Execute(ctx, writeTx, query,
+				table.NewQueryParameters(u.setValues()...),
+				options.WithCollectStatsModeBasic(),
+			)
+			return err
+		},
+	)
+}
+`,
+		`
+func (ur *{{ .St.NameTable }}Repo) Upsert(ctx context.Context, u *{{ .St.NameTable }}) (err error) {
+	// defer wrap.Errf("upsert {{ lower .St.NameTable }} %d,%s", &err,
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} u.{{ $x.Field }}{{ else }}
+	{{- if $x.YDBPrimary }}, u.{{ $x.Field }}{{ end }}{{ end }}
+	{{- end -}}
+)
+	// u.BeforeUpdate()
+	query := ur.declare{{ .St.NameTable }}() + ` + "`UPSERT INTO `" + ` + ur.table("") + ` + "` (` + ur.fields() + `) VALUES `" + ` + ur.values()
+	return ur.DB.Table().Do(
+		ctx,
+		func(ctx context.Context, s table.Session) (err error) {
+			_, _, err = s.Execute(ctx, writeTx, query,
+				table.NewQueryParameters(u.setValues()...),
+				options.WithCollectStatsModeBasic(),
+			)
+			return err
+		},
+	)
+}
+`,
+		`
+func (ur *{{ .St.NameTable }}Repo) Delete(ctx context.Context,
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} {{ low_capitalize $x.Field }} {{ $x.Type }}{{ else }}
+	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }} {{ $x.Type }}{{ end }}{{ end }}
+	{{- end -}}
+) (err error) {
+	// defer wrap.Errf("delete {{ lower .St.NameTable }} %d,%s", &err, 
+	{{- range $i, $x := .St.Table_  }}
+	{{- if eq $i 0 }} {{ low_capitalize $x.Field }}{{ else }}
+	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
+	{{- end -}}
+)
+	query := ur.declarePrimary() + ` + "`DELETE FROM `" + ` + ur.table("") + ur.findPrimary()
+	return ur.DB.Table().Do(
+		ctx,
+		func(ctx context.Context, s table.Session) (err error) {
+			_, _, err = s.Execute(ctx, writeTx, query,
+				ur.primaryParams(
+					{{- range $i, $x := .St.Table_  }}
+					{{- if eq $i 0 }}{{ low_capitalize $x.Field }}{{ else }}
+					{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
+					{{- end -}}
+				),
+				options.WithCollectStatsModeBasic(),
+			)
+			return err
+		},
+	)
+}
+`,
+		`{{ $table := .St }}
+{{- $pr := (index $table.Table_ 0) }}
+{{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
+func (ur *{{ $table.NameTable }}Repo) DeleteBy{{ $pr.Field }}(ctx context.Context, {{ low_capitalize $pr.Field }} {{ $pr.Type }}) (err error) {
+	// defer wrap.Errf("delete {{ lower $table.NameTable }} by {{ low_capitalize $pr.Field }} %d", &err, {{ low_capitalize $pr.Field }})
+	query := ur.declarePrimary() + ` + "`DELETE FROM `" + ` + ur.table("") + ur.findByFirst()
+	return ur.DB.Table().Do(
+		ctx,
+		func(ctx context.Context, s table.Session) (err error) {
+			_, _, err = s.Execute(ctx, writeTx, query,
+				ur.firstParam({{ low_capitalize $pr.Field }}),
+				options.WithCollectStatsModeBasic(),
+			)
+			return err
+		},
+	)
+}
+{{ break }}
+{{- end }}
+{{- end -}}
+`,
+		`
+func (ur *{{ .St.NameTable }}Repo) CreateTable(ctx context.Context) (err error) {
+	// defer wrap.Err("create table", &err)
+	return ur.DB.Table().Do(
+		ctx,
+		func(ctx context.Context, s table.Session) (err error) {
+			return s.CreateTable(ctx, path.Join(ur.DB.Name(), "{{ lower .St.NameTable }}s"),
+				{{- range $i, $x := .St.Table_  }}
+				options.WithColumn("{{ $x.YDBField }}", types.Optional(types.Type
+					{{- $x.YDBType }})),
+				{{- end }}
+				options.WithPrimaryKeyColumn(
+					{{- range $i, $x := .St.Table_  }}
+					{{- if eq $i 0 }}"{{ $x.YDBField }}"{{ else }}
+					{{- if $x.YDBPrimary }}, "{{ $x.YDBField }}"{{ end }}{{ end }}
+					{{- end -}}
+				),
+			)
+		},
+	)
 }
 `,
 	}
@@ -128,6 +403,24 @@ func (ur ProfileRepo) values() string {
 			template.FuncMap{
 				"last": func(x int, a interface{}) bool {
 					return x == reflect.ValueOf(a).Len()-1
+				},
+				"low_capitalize": func(s string) string {
+					return strings.ToLower(s[:1]) + s[1:]
+				},
+				"lower": func(s string) string {
+					ans := []string{}
+					for i, x := range s {
+						symb := string(x)
+						if i == 0 {
+							ans = append(ans, strings.ToLower(symb))
+						} else if symb == strings.ToLower(symb) {
+							ans = append(ans, symb)
+						} else {
+							ans = append(ans, "_"+strings.ToLower(symb))
+						}
+
+					}
+					return strings.Join(ans, "")
 				},
 			})
 		t.Parse(f)
