@@ -1,7 +1,7 @@
 # ydb_reform
 In developing...
 
-create a file (for example, person.go) and fill it with a sample
+1) create a file (for example, person.go) and fill it with a sample
 
 ```//ydb_reform
 package main
@@ -18,3 +18,9 @@ type Person struct {
 	UpdatedAt *time.Time `ydb:"updated_at"`
 }
 ```
+
+2) Build ydb_reform.exe
+
+3) Move this installer to path with structs
+
+4) Run ydb_reform and get buzz
