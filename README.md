@@ -15,7 +15,7 @@ type Person struct {
 	Name      string     `ydb:"name"`
 	Email     *string    `ydb:"email"`
 	CreatedAt time.Time  `ydb:"created_at"`
-	UpdatedAt *time.Time `ydb:"updated_at"`
+	UpdatedAt time.Time `ydb:"updated_at"`
 }
 
 func (u *Person) BeforeInsert() {
