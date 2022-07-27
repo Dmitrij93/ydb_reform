@@ -47,20 +47,20 @@ import(
 	"github.com/ydb-platform/ydb-go-sdk/v3/table/types"
 )
 `,
-		`
+		`{{ if .EmptyVariable }}
 var writeTx = table.TxControl(
 	table.BeginTx(
 		table.WithSerializableReadWrite(),
 	),
 	table.CommitTx(),
 )
-`,
+{{ end }}`,
 		`
 func (u *{{ .St.NameTable }}) scanValues() []named.Value {
 	return []named.Value{
 	{{- range $i, $x := .St.Table_ }}
 		named.
-		{{- if $x.YDBPrimary }}Required
+		{{- if eq $i 0 }}Required
 		{{- else }}{{if eq $x.NullType false}}OptionalWithDefault
 		{{- else }}Optional
 		{{- end }}{{ end -}}
@@ -160,7 +160,9 @@ func (ur {{ $table.NameTable }}Repo) firstParam(
 	{{- low_capitalize $pr.Field }} {{ $pr.Type -}}
 ) *table.QueryParameters {
 	return table.NewQueryParameters(
-		table.ValueParam("${{ $pr.Field }}", types.Uint64Value({{ low_capitalize $pr.Field }})),
+		table.ValueParam("${{ $pr.Field }}", types.
+		{{- $pr.YDBType }}{{ if eq $pr.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
+		({{ low_capitalize $pr.Field }})),
 	)
 }
 {{ break }}
@@ -177,7 +179,9 @@ func (ur {{ .St.NameTable }}Repo) primaryParams(
 	return table.NewQueryParameters(
 		{{- range $i, $x := .St.Table_  }}
 		{{- if $x.YDBPrimary}}
-		table.ValueParam("${{ $x.Field }}", types.Uint64Value({{ low_capitalize $x.Field }})),
+		table.ValueParam("${{ $x.Field }}", types.
+		{{- $x.YDBType }}{{ if eq $x.YDBType "Datetime" }}ValueFromTime{{ else }}Value{{ end -}}
+		({{ low_capitalize $x.Field }})),
 		{{- end }}
 		{{- end }}
 	)
@@ -190,12 +194,6 @@ func (ur *{{ .St.NameTable }}Repo) Get(ctx context.Context,
 	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }} {{ $x.Type }}{{ end }}{{ end }}
 	{{- end -}}
 ) (u *{{ .St.NameTable }}, err error) {
-	// defer wrap.Errf("get {{ lower .St.NameTable }} %` + `d,%` + `s", &err,
-	{{- range $i, $x := .St.Table_  }}
-	{{- if eq $i 0 }} {{ low_capitalize $x.Field }}{{ else }}
-	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
-	{{- end -}}
-)
 	u = &{{ .St.NameTable }}{}
 	query := ur.declarePrimary() + ` + "`SELECT `" + ` + ur.fields() +
 		" FROM " + ur.table("") +
@@ -225,7 +223,6 @@ func (ur *{{ .St.NameTable }}Repo) Get(ctx context.Context,
 			return
 		}
 	}
-	// err = wrap.NotFoundError{}
 	return
 }
 `,
@@ -234,7 +231,6 @@ func (ur *{{ .St.NameTable }}Repo) Get(ctx context.Context,
 {{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
 func (ur *{{ $table.NameTable }}Repo) GetBy{{$pr.Field}}(ctx context.Context, {{ low_capitalize $pr.Field }} {{ $pr.Type -}}
 ) (ss []*{{ $table.NameTable }}, err error) {
-	// defer wrap.Errf("get {{ lower $table.NameTable }}s by {{ low_capitalize $pr.Field }} %d", &err, {{ low_capitalize $pr.Field }})
 	query := ur.declarePrimary() + ` + "`SELECT `" + ` + ur.fields() +
 		" FROM " + ur.table("") +
 		ur.findByFirst()
@@ -270,13 +266,8 @@ func (ur *{{ $table.NameTable }}Repo) GetBy{{$pr.Field}}(ctx context.Context, {{
 `,
 		`
 func (ur *{{ .St.NameTable }}Repo) Insert(ctx context.Context, u *{{ .St.NameTable }}) (err error) {
-	// defer wrap.Errf("insert {{ lower .St.NameTable }} %d,%s", &err,
-	{{- range $i, $x := .St.Table_  }}
-	{{- if eq $i 0 }} u.{{ $x.Field }}{{ else }}
-	{{- if $x.YDBPrimary }}, u.{{ $x.Field }}{{ end }}{{ end }}
-	{{- end -}}
-)
-	// u.BeforeInsert()
+	{{ if .Funcs.BeforeInsert }}u.BeforeInsert()
+	{{ end -}}
 	query := ur.declare{{ .St.NameTable }}() + ` + "`INSERT INTO `" + ` + ur.table("") + ` + "` (` + ur.fields() + `) VALUES `" + ` + ur.values()
 	return ur.DB.Table().Do(
 		ctx,
@@ -292,13 +283,8 @@ func (ur *{{ .St.NameTable }}Repo) Insert(ctx context.Context, u *{{ .St.NameTab
 `,
 		`
 func (ur *{{ .St.NameTable }}Repo) Upsert(ctx context.Context, u *{{ .St.NameTable }}) (err error) {
-	// defer wrap.Errf("upsert {{ lower .St.NameTable }} %d,%s", &err,
-	{{- range $i, $x := .St.Table_  }}
-	{{- if eq $i 0 }} u.{{ $x.Field }}{{ else }}
-	{{- if $x.YDBPrimary }}, u.{{ $x.Field }}{{ end }}{{ end }}
-	{{- end -}}
-)
-	// u.BeforeUpdate()
+	{{ if .Funcs.BeforeUpdate }}u.BeforeUpdate()
+	{{ end -}}
 	query := ur.declare{{ .St.NameTable }}() + ` + "`UPSERT INTO `" + ` + ur.table("") + ` + "` (` + ur.fields() + `) VALUES `" + ` + ur.values()
 	return ur.DB.Table().Do(
 		ctx,
@@ -319,12 +305,6 @@ func (ur *{{ .St.NameTable }}Repo) Delete(ctx context.Context,
 	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }} {{ $x.Type }}{{ end }}{{ end }}
 	{{- end -}}
 ) (err error) {
-	// defer wrap.Errf("delete {{ lower .St.NameTable }} %d,%s", &err, 
-	{{- range $i, $x := .St.Table_  }}
-	{{- if eq $i 0 }} {{ low_capitalize $x.Field }}{{ else }}
-	{{- if $x.YDBPrimary }}, {{ low_capitalize $x.Field }}{{ end }}{{ end }}
-	{{- end -}}
-)
 	query := ur.declarePrimary() + ` + "`DELETE FROM `" + ` + ur.table("") + ur.findPrimary()
 	return ur.DB.Table().Do(
 		ctx,
@@ -347,7 +327,6 @@ func (ur *{{ .St.NameTable }}Repo) Delete(ctx context.Context,
 {{- $pr := (index $table.Table_ 0) }}
 {{- range $i, $x := $table.Table_  }}{{ if and (ne $i 0) $x.YDBPrimary }}
 func (ur *{{ $table.NameTable }}Repo) DeleteBy{{ $pr.Field }}(ctx context.Context, {{ low_capitalize $pr.Field }} {{ $pr.Type }}) (err error) {
-	// defer wrap.Errf("delete {{ lower $table.NameTable }} by {{ low_capitalize $pr.Field }} %d", &err, {{ low_capitalize $pr.Field }})
 	query := ur.declarePrimary() + ` + "`DELETE FROM `" + ` + ur.table("") + ur.findByFirst()
 	return ur.DB.Table().Do(
 		ctx,
@@ -366,7 +345,6 @@ func (ur *{{ $table.NameTable }}Repo) DeleteBy{{ $pr.Field }}(ctx context.Contex
 `,
 		`
 func (ur *{{ .St.NameTable }}Repo) CreateTable(ctx context.Context) (err error) {
-	// defer wrap.Err("create table", &err)
 	return ur.DB.Table().Do(
 		ctx,
 		func(ctx context.Context, s table.Session) (err error) {

@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-type table struct {
+type tableInfo struct {
 	Field      string
 	Type       string
 	NullType   bool
@@ -19,19 +19,26 @@ type table struct {
 }
 type namedTable struct {
 	NameTable string
-	Table_    []table
+	Table_    []tableInfo
+}
+type listFuncs struct {
+	BeforeInsert bool
+	BeforeUpdate bool
 }
 type parsedTable struct {
-	Package    string
-	Imp        []string
-	NotParceSt []string
-	St         namedTable
+	Package       string
+	Imp           []string
+	NotParceSt    []string
+	St            namedTable
+	EmptyVariable bool
+	Funcs         listFuncs
 }
 
 var parsedTables_ parsedTable
 var imp []string
 var currentlyNameTable string = ""
 var flag_ string
+var isFirstFile = true
 var ydbType = map[string]string{
 	"string":     "UTF8",
 	"bool":       "Bool",
@@ -57,6 +64,8 @@ func parse(text, fileName string) {
 		return
 	} else if len(text) > 7 && text[:7] == "package" {
 		parsedTables_.Package = text
+		parsedTables_.Funcs.BeforeInsert = false
+		parsedTables_.Funcs.BeforeUpdate = false
 	} else if len(text) > 6 && text[:6] == "import" {
 		if text[7:8] != "(" {
 			imp = append(imp, text[7:])
@@ -64,7 +73,7 @@ func parse(text, fileName string) {
 		} else {
 			flag_ = "gathering imports"
 		}
-	} else if text == ")" {
+	} else if flag_ == "gathering imports" && text == ")" {
 		flag_ = "import is complete"
 	} else if flag_ == "gathering imports" {
 		imp = append(imp, strings.TrimSpace(text))
@@ -73,7 +82,7 @@ func parse(text, fileName string) {
 		currentlyNameTable = strings.Fields(text)[1]
 		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		// parsedTables_.Imp = imp
-		parsedTables_.St = namedTable{currentlyNameTable, []table{}}
+		parsedTables_.St = namedTable{currentlyNameTable, []tableInfo{}}
 	} else if text == "}" {
 		parsedTables_.NotParceSt = append(parsedTables_.NotParceSt, text)
 		flag_ = "parse is complete"
@@ -90,7 +99,7 @@ func parse(text, fileName string) {
 		if len(ydbField) > 1 && ydbField[1] == "primary" {
 			ydbPrimary = true
 		}
-		fieldstruct := table{
+		fieldstruct := tableInfo{
 			tableField[0],
 			typeField[len(typeField)-1],
 			nullType,
@@ -102,6 +111,10 @@ func parse(text, fileName string) {
 			log.Fatalf("First field structs isn't primary in file: %s ", fileName)
 		}
 		parsedTables_.St.Table_ = append(parsedTables_.St.Table_, fieldstruct)
+	} else if len(text) > 4 && text[:4] == "func" && strings.Contains(text, "BeforeInsert") {
+		parsedTables_.Funcs.BeforeInsert = true
+	} else if len(text) > 4 && text[:4] == "func" && strings.Contains(text, "BeforeUpdate") {
+		parsedTables_.Funcs.BeforeUpdate = true
 	}
 }
 
@@ -125,13 +138,18 @@ func main() {
 			count := 0
 			flag_ = ""
 			imp = []string{}
-			parsedTables_ = parsedTable{"", []string{}, []string{}, namedTable{}}
+			parsedTables_ = parsedTable{"", []string{}, []string{}, namedTable{}, false, listFuncs{}}
 			for fileScanner.Scan() {
 				text := fileScanner.Text()
 				if count == 0 && text != "//ydb_reform" {
 					flag_ = "not target file"
 					break
-				} else if count != 0 {
+				}
+				if count == 0 && isFirstFile {
+					parsedTables_.EmptyVariable = true
+					isFirstFile = false
+				}
+				if count != 0 {
 					parse(text, file.Name())
 				}
 				count++
