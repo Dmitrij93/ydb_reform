@@ -1,5 +1,4 @@
 # ydb_reform
-In developing...
 
 1) create a file (for example, person.go) and fill it with a sample
 
@@ -17,6 +16,15 @@ type Person struct {
 	Email     *string    `ydb:"email"`
 	CreatedAt time.Time  `ydb:"created_at"`
 	UpdatedAt *time.Time `ydb:"updated_at"`
+}
+
+func (u *Person) BeforeInsert() {
+	u.CreatedAt = time.Now()
+	u.BeforeUpdate()
+}
+
+func (u *Person) BeforeUpdate() {
+	u.UpdatedAt = time.Now()
 }
 ```
 
